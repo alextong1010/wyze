@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Human Detection Video Stream</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+        h1 {
+            color: #333;
+        }
+        .video-container {
+            margin-top: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            display: inline-block;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+    <script>
+        // Add a load event listener to the image
+        window.onload = function() {
+            var img = document.getElementById('video-stream');
+            var statusDiv = document.getElementById('status');
+            
+            img.onload = function() {
+                statusDiv.innerHTML = "Stream loaded successfully!";
+                statusDiv.className = "status";
+            };
+            
+            img.onerror = function() {
+                statusDiv.innerHTML = "Error loading stream. Please check the console for details.";
+                statusDiv.className = "status error";
+                
+                // Try to fetch the video feed directly to see if there's an error
+                fetch('/video_feed')
+                    .then(response => {
+                        if (!response.ok) {
+                            statusDiv.innerHTML += "<br>Error: " + response.status + " " + response.statusText;
+                        } else {
+                            statusDiv.innerHTML += "<br>Video feed endpoint is responding, but image cannot be displayed.";
+                        }
+                    })
+                    .catch(error => {
+                        statusDiv.innerHTML += "<br>Error fetching video feed: " + error;
+                    });
+            };
+        };
+    </script>
+</head>
+<body>
+    <h1>Human Detection Video Stream</h1>
+    <p>This page should display a video stream with human detection.</p>
+    <div class="video-container">
+        <img id="video-stream" src="{{ url_for('video_feed') }}" alt="Video Stream">
+    </div>
+    <div id="status" class="status">
+        Loading stream...
+    </div>
+    <p>
+        <a href="/test">Go to test page</a>
+    </p>
+</body>
+</html> 
