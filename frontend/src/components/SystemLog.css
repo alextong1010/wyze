@@ -1,0 +1,73 @@
+.system-log-container {
+  /* Remove margin-top */
+  /* margin-top: 30px; */
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  padding: 15px 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  /* max-height: 200px; */ /* Adjust height as needed */
+  display: flex;
+  flex-direction: column;
+
+  /* --- Update Fixed Positioning --- */
+  position: fixed;
+  right: 20px; /* Keep on the right */
+  top: 50%; /* Center vertically */
+  transform: translateY(-50%); /* Adjust vertical centering */
+  /* bottom: 20px; */ /* Remove bottom positioning */
+  width: 300px; /* Keep fixed width */
+  height: 300px; /* Adjust height as needed */
+  z-index: 40; /* Keep below lighting bar */
+}
+
+.system-log-container h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  border-bottom: 1px solid #333;
+  padding-bottom: 8px;
+  flex-shrink: 0; /* Prevent header from shrinking */
+}
+
+.log-messages {
+  flex-grow: 1; /* Take remaining space */
+  overflow-y: auto; /* Enable vertical scrolling */
+  font-size: 0.9rem;
+  color: #a0a0a0;
+  line-height: 1.5;
+}
+
+/* Styling for scrollbar (optional, browser-specific) */
+.log-messages::-webkit-scrollbar {
+  width: 8px;
+}
+.log-messages::-webkit-scrollbar-track {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+.log-messages::-webkit-scrollbar-thumb {
+  background-color: #444;
+  border-radius: 4px;
+  border: 2px solid #2a2a2a;
+}
+.log-messages::-webkit-scrollbar-thumb:hover {
+  background-color: #555;
+}
+
+.log-placeholder {
+  font-style: italic;
+  color: #666;
+}
+
+.log-entry {
+  margin-bottom: 5px;
+  padding: 2px 0;
+}
+
+.log-timestamp {
+  color: #777;
+  margin-right: 8px;
+  font-family: 'Courier New', Courier, monospace; /* Monospaced font for timestamp */
+} 

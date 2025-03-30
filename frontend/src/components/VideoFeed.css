@@ -46,6 +46,11 @@
   box-shadow: 0 0 8px rgba(244, 67, 54, 0.6);
 }
 
+.status-dot.ready {
+  background-color: #ffc107;
+  box-shadow: 0 0 8px rgba(255, 193, 7, 0.6);
+}
+
 .status-text {
   font-size: 0.9rem;
   color: #a0a0a0;
@@ -130,4 +135,100 @@
 
 .timestamp {
   color: #666;
+}
+
+.video-controls {
+  padding: 15px 20px;
+  border-top: 1px solid #333;
+  background-color: #1a1a1a;
+}
+
+.video-controls h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.video-controls button {
+  background-color: #333;
+  color: #fff;
+  border: 1px solid #555;
+  padding: 8px 15px;
+  margin-right: 10px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s, border-color 0.3s;
+  font-size: 0.9rem;
+}
+
+.video-controls button:hover:not(:disabled) {
+  background-color: #444;
+  border-color: #777;
+}
+
+.video-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.video-controls button.active {
+  background-color: #007bff; /* Or your theme's primary color */
+  border-color: #0056b3;
+  color: white;
+  cursor: default;
+}
+
+.play-stop-controls {
+  text-align: center;
+  padding: 10px 20px;
+  border-top: 1px solid #333;
+  background-color: #1a1a1a;
+}
+
+.play-stop-controls button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 25px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.3s;
+  margin: 0 5px;
+}
+
+.play-stop-controls button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.play-stop-controls button:last-child {
+  background-color: #dc3545;
+}
+
+.play-stop-controls button:last-child:hover:not(:disabled) {
+  background-color: #c82333;
+}
+
+.play-stop-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.play-button-overlay {
+  background-color: rgba(0, 123, 255, 0.8);
+  color: white;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: background-color 0.3s;
+  margin-top: 15px;
+}
+
+.play-button-overlay:hover {
+  background-color: rgba(0, 86, 179, 0.9);
 } 

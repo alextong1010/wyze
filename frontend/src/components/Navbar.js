@@ -6,11 +6,10 @@ function Navbar() {
     <nav className="navbar">
       <div className="container navbar-container">
         <div className="logo">
-          <span className="logo-text">HumanDetect</span>
+          <span className="logo-text">RoomAware</span>
         </div>
         <ul className="nav-links">
           <li><a href="/" className="active">Home</a></li>
-          <li><a href="/about">About</a></li>
         </ul>
       </div>
     </nav>
