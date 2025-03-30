@@ -49,18 +49,8 @@ pip install numpy
 pip install flask
 pip install ultralytics
 
-# macOS with Homebrew
-brew install node
-
-# Ubuntu/Debian
-sudo apt update
-sudo apt install nodejs npm
-
-node -v
-npm -v
-
-npm install
-npm start
+# To Run:
+```bash
 npm run build
-
 python main.py
+```
