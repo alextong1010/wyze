@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import VideoFeed from './components/VideoFeed';
 import LightingBar from './components/LightingBar';
 import SystemLog from './components/SystemLog';
+import ConvoAIButton from './components/ConvoAIButton';
 
 const MAX_LOG_MESSAGES = 50;
 
@@ -49,7 +50,6 @@ function App() {
       } else if (currentTv === 'not_detected') {
         newLogEntries.push({ timestamp, text: "📺 No TV detected in this scene." });
         console.log("Log: TV Not Detected");
-      } else if (currentTv === 'unknown') {
       }
       previousTvStatusRef.current = currentTv;
     }
@@ -63,7 +63,6 @@ function App() {
         return updatedMessages;
       });
     }
-
   }, [lightingLevel, tvStatus]);
 
   const clearLogMessages = () => {
@@ -71,6 +70,17 @@ function App() {
     setLogMessages([]);
     previousLightingLevelRef.current = 0;
     previousTvStatusRef.current = 'unknown';
+  };
+
+  // Callback function for ConvoAIButton to add a new log entry.
+  const addLogMessage = (msg) => {
+    setLogMessages(prevMessages => {
+      const updatedMessages = [...prevMessages, msg];
+      if (updatedMessages.length > MAX_LOG_MESSAGES) {
+        return updatedMessages.slice(updatedMessages.length - MAX_LOG_MESSAGES);
+      }
+      return updatedMessages;
+    });
   };
 
   return (
@@ -89,6 +99,7 @@ function App() {
       </main>
       <LightingBar level={lightingLevel} />
       <SystemLog messages={logMessages} />
+      <ConvoAIButton onLogMessage={addLogMessage} />
       <footer className="footer">
         <div className="container">
           <p>&copy; {new Date().getFullYear()} RoomAware</p>
@@ -98,4 +109,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;
