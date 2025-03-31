@@ -40,7 +40,7 @@ Follow these steps to set up and run the project on macOS or Linux.
     ```
 3.  **Install Python dependencies:**
     ```bash
-    pip install opencv-python numpy flask ultralytics
+    pip install -r requirements.txt
     ```
     *Note: The first time you run the application, the YOLOv8 model (`yolov8n.pt`) will be downloaded automatically if it's not present in the root directory.*
 
