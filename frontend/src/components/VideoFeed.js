@@ -7,7 +7,7 @@ import './VideoFeed.css';
 const socket = io(); // Connects to the same host/port serving the page
 
 // Pass setLightingLevel and clearLogMessages down from App
-function VideoFeed({ setLightingLevel, clearLogMessages }) {
+function VideoFeed({ setLightingLevel, setTvStatus, clearLogMessages }) {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [videoSrc, setVideoSrc] = useState(''); // Store the base64 data URI
   const [currentVideoName, setCurrentVideoName] = useState(''); // Store name from backend status
@@ -46,6 +46,7 @@ function VideoFeed({ setLightingLevel, clearLogMessages }) {
       setError('Connection lost.');
       setVideoSrc('');
       setLightingLevel(0);
+      setTvStatus('unknown'); // Reset TV status on disconnect
       setIsPlaying(false); // Reset playing state
       setIsReady(false); // Reset ready state
     };
@@ -89,6 +90,7 @@ function VideoFeed({ setLightingLevel, clearLogMessages }) {
           setIsReady(false); // Not ready during switch
           setVideoSrc('');
           setLightingLevel(0);
+          setTvStatus('unknown'); // Reset TV status during switch
           if (clearLogMessages) {
             clearLogMessages();
           }
@@ -100,6 +102,7 @@ function VideoFeed({ setLightingLevel, clearLogMessages }) {
           // Keep videoSrc as is (last frame) or clear it? Let's clear it.
           // setVideoSrc('');
           setLightingLevel(0);
+          setTvStatus('unknown'); // Reset TV status on stop
           break;
         case 'error':
           setStatusMessage(`Error: ${data.message || 'Unknown error'}`);
@@ -108,6 +111,7 @@ function VideoFeed({ setLightingLevel, clearLogMessages }) {
           setIsReady(false); // Not ready on error
           setVideoSrc('');
           setLightingLevel(0);
+          setTvStatus('unknown'); // Reset TV status on error
           break;
         default:
           setStatusMessage('Status update received...');
@@ -116,11 +120,22 @@ function VideoFeed({ setLightingLevel, clearLogMessages }) {
       }
     };
 
+    // --- New Listener for TV Status ---
+    const handleTvStatusUpdate = (data) => {
+        if (data && data.status) {
+            console.log('TV Status Update:', data.status);
+            setTvStatus(data.status); // Update App state via the passed function
+        } else {
+            console.warn("Received invalid TV status update:", data);
+        }
+    };
+
     // Register listeners
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('video_frame', handleVideoFrame);
     socket.on('video_status', handleVideoStatus);
+    socket.on('tv_status_update', handleTvStatusUpdate); // Register new listener
 
     // Initial connection check
     if (socket.connected) {
@@ -136,10 +151,11 @@ function VideoFeed({ setLightingLevel, clearLogMessages }) {
       socket.off('disconnect', handleDisconnect);
       socket.off('video_frame', handleVideoFrame);
       socket.off('video_status', handleVideoStatus);
+      socket.off('tv_status_update', handleTvStatusUpdate); // Unregister listener
       // Optional: disconnect if the component should fully clean up the connection
       // socket.disconnect();
     };
-  }, [setLightingLevel, clearLogMessages]); // Removed isSwitching dependency
+  }, [setLightingLevel, setTvStatus, clearLogMessages]); // Removed isSwitching dependency
 
   // --- Button Handlers ---
   const handlePlay = () => {
