@@ -40,9 +40,9 @@ video_processing_active = False
 
 # --- Add TV Detection State Variables ---
 tv_detection_frames = 10       # Number of frames to check for TV presence at video start
-tv_confidence_threshold = 0.1  # Lower threshold for TV detection
+tv_confidence_threshold = 0.65  # << INCREASED THRESHOLD (e.g., to 0.4 or 0.5)
 tv_detection_classes = ['tv', 'television', 'monitor', 'screen', 'display']  # Extended class list
-debug_mode = True              # Enable debugging for TV detection issues
+debug_mode = False             # Disable debugging for TV detection issues by default
 
 # --- Add Smoothing State Variables ---
 stable_lighting_level = 0       # The level currently reported to the frontend
@@ -125,19 +125,23 @@ def detect_tv_status(frame):
     global model
     tv_detected = False
     tv_status = "off"  # Default status
-    tv_confidence = 0.0
-    
+    best_tv_confidence = 0.0 # Track the highest confidence *for a TV class*
+    tv_box = None # Store the box coordinates of the best TV detection
+    best_tv_class_name = "" # Store the class name of the best TV detection
+
+
     if model is None:
         print("Model not loaded, attempting to load...")
         if not load_model():
             cv2.putText(frame, "Error: YOLO Model Load Failed", (50, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            return frame, tv_detected, tv_status, tv_confidence
-    
+            # Return default values if model fails
+            return frame, tv_detected, tv_status, best_tv_confidence, tv_box
+
     # Run YOLOv8 inference
     results = model(frame, verbose=False)
-    
-    # Process results
+
+    # Process results - Find the best *TV class* detection
     for result in results:
         boxes = result.boxes
         for box in boxes:
@@ -146,58 +150,77 @@ def detect_tv_status(frame):
                 cls = int(box.cls[0])
                 conf = float(box.conf[0])
                 class_name = result.names[cls]
-                
-                # Check for TV or related display classes with lower threshold
-                if class_name in tv_detection_classes:
-                    if conf > tv_confidence_threshold:
-                        tv_detected = True
-                        tv_confidence = conf
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                        
-                        # Extract the TV region to analyze if it's on or off
-                        tv_region = frame[y1:y2, x1:x2]
-                        
-                        if tv_region.size > 0:  # Make sure region is valid
-                            # Enhanced TV on/off detection
-                            gray_tv = cv2.cvtColor(tv_region, cv2.COLOR_BGR2GRAY)
-                            mean_brightness = np.mean(gray_tv)
-                            std_brightness = np.std(gray_tv)
-                            
-                            # Also check for color variation (on screens typically have more color variance)
-                            color_variance = np.mean([np.std(tv_region[:,:,0]), 
-                                                     np.std(tv_region[:,:,1]),
-                                                     np.std(tv_region[:,:,2])])
-                            
-                            # More robust combined criteria
-                            if (std_brightness > 20 and mean_brightness > 30) or color_variance > 15:
-                                tv_status = "on"
-                                label = f'{class_name}: {conf:.2f} (ON)'
-                                cv2.putText(frame, label, (x1, y1 - 10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                            else:
-                                label = f'{class_name}: {conf:.2f} (OFF)'
-                                cv2.putText(frame, label, (x1, y1 - 10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            
+
+                # Check if it's a TV class AND meets the threshold AND is better than the last TV found
+                if class_name in tv_detection_classes and conf > tv_confidence_threshold:
+                    if conf > best_tv_confidence:
+                        tv_detected = True # We found at least one valid TV
+                        best_tv_confidence = conf
+                        tv_box = (x1, y1, x2, y2) # Store the box of this best detection
+                        best_tv_class_name = class_name # Store its name
+
+                # Optional: Draw boxes for other high-confidence objects (like persons) for context
+                # elif class_name == 'person' and conf > 0.5:
+                #     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 1) # Thinner box maybe
+                #     label = f'Person: {conf:.2f}'
+                #     cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+
             except Exception as e:
-                print(f"Error processing TV detection: {e}")
+                print(f"Error processing detection box: {e}")
                 continue  # Skip this box if there's an error
-    
+
+    # If a TV was detected (i.e., tv_detected is True), analyze its state and draw its box
+    if tv_detected and tv_box:
+        x1, y1, x2, y2 = tv_box
+        # Draw the box for the best TV detection
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 255), 2) # Changed color for TV box
+
+        # Extract the TV region to analyze if it's on or off
+        tv_region = frame[y1:y2, x1:x2]
+
+        if tv_region.size > 0:  # Make sure region is valid
+            # Enhanced TV on/off detection
+            gray_tv = cv2.cvtColor(tv_region, cv2.COLOR_BGR2GRAY)
+            mean_brightness = np.mean(gray_tv)
+            std_brightness = np.std(gray_tv)
+            color_variance = np.mean([np.std(tv_region[:,:,0]),
+                                     np.std(tv_region[:,:,1]),
+                                     np.std(tv_region[:,:,2])])
+
+            # Criteria for TV being ON
+            if (std_brightness > 15 and mean_brightness > 25) or color_variance > 12:
+                tv_status = "on"
+                label = f'{best_tv_class_name}: {best_tv_confidence:.2f} (ON)' # Use stored best TV info
+                cv2.putText(frame, label, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            else:
+                tv_status = "off" # Explicitly set to off
+                label = f'{best_tv_class_name}: {best_tv_confidence:.2f} (OFF)' # Use stored best TV info
+                cv2.putText(frame, label, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2) # Match box color
+        else:
+             tv_status = "off" # Invalid region, assume off
+
+    # Debug info only shown if debug_mode is True and no TV was detected above threshold
     if debug_mode and not tv_detected:
-        # Add debug info to the frame about what classes were detected
-        detected_classes = []
+        detected_classes_debug = []
         for result in results:
             for box in result.boxes:
-                cls = int(box.cls[0])
-                conf = float(box.conf[0])
-                class_name = result.names[cls]
-                detected_classes.append(f"{class_name}:{conf:.2f}")
-        
-        if detected_classes:
-            debug_text = f"Detected: {', '.join(detected_classes)}"
+                try: # Add try-except here too
+                    cls = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    class_name = result.names[cls]
+                    detected_classes_debug.append(f"{class_name}:{conf:.2f}")
+                except Exception as e:
+                    print(f"Error getting debug class info: {e}")
+
+        if detected_classes_debug:
+            debug_text = f"Detected: {', '.join(detected_classes_debug)}"
             cv2.putText(frame, debug_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-    
-    return frame, tv_detected, tv_status, tv_confidence
+
+    # Return the confidence of the best *TV* detection found
+    return frame, tv_detected, tv_status, best_tv_confidence, tv_box
 
 
 # --- Video Processing Thread ---
@@ -211,12 +234,11 @@ def process_video(target_fps=None):
     video_processing_active = True
     last_frame_time = time.time()
     cap = None
-    
-    # TV control variables
-    tv_detected_in_scene = False
-    tv_current_state = "off"
-    tv_check_frames = 0
-    tv_detection_count = 0
+
+    # --- TV control variables (scoped within the thread) ---
+    tv_detected_in_scene = False # Does the current video contain a TV?
+    tv_current_state = "off"     # What state do we *think* the TV is in? (off/on)
+    # --- End TV control variables ---
 
     if not load_model():
          print("Initial model load failed. Thread exiting.")
@@ -245,6 +267,10 @@ def process_video(target_fps=None):
                 stable_lighting_level = 0
                 pending_lighting_state = 0
                 frames_in_pending_state = 0
+                # --- Reset TV State on Switch ---
+                tv_detected_in_scene = False
+                tv_current_state = "off"
+                socketio.emit('tv_status_update', {'status': 'unknown'}) # Reset frontend TV state
                 # --- End Reset ---
                 switch_video_event.clear()
                 play_event.clear()
@@ -278,42 +304,59 @@ def process_video(target_fps=None):
             else:
                  continue
 
-            # Check multiple frames for TV presence
+            # --- Initial TV Detection Check ---
+            print(f"Checking first {tv_detection_frames} frames for TV presence...")
             tv_check_frames = 0
             tv_detection_count = 0
             tv_best_confidence = 0.0
-            
+            initial_tv_state = "off" # Track initial detected state
+
             # Sample several frames to look for TVs
             while tv_check_frames < tv_detection_frames:
                 ret, check_frame = cap.read()
                 if not ret:
-                    break
-                
+                    print("Warning: Could not read frame during initial TV check.")
+                    break # Stop check if video ends early
+
                 try:
                     # Use detect_tv_status to check for TV
-                    _, tv_detected, _, tv_conf = detect_tv_status(check_frame.copy())
+                    _, tv_detected, detected_status, tv_conf, _ = detect_tv_status(check_frame.copy()) # Use copy
                     if tv_detected:
                         tv_detection_count += 1
                         tv_best_confidence = max(tv_best_confidence, tv_conf)
-                        print(f"TV detected in frame {tv_check_frames+1} with confidence {tv_conf:.2f}")
+                        # If this is the first detection, note its state
+                        if tv_detection_count == 1:
+                            initial_tv_state = detected_status
+                        # print(f"DEBUG: TV detected in frame {tv_check_frames+1} with confidence {tv_conf:.2f}, status: {detected_status}")
                 except Exception as e:
-                    print(f"Error processing frame {tv_check_frames+1}: {e}")
-                
+                    print(f"Error processing frame {tv_check_frames+1} during TV check: {e}")
+
                 tv_check_frames += 1
-                
-                # If we've checked enough frames or found enough TVs, stop
-                if tv_detection_count >= 3:  # Found in 3+ frames, pretty confident
-                    break
-            
-            # Reset video to start
+
+                # Optimization: If we've found a TV confidently, maybe stop early?
+                # if tv_detection_count >= 3 and tv_best_confidence > 0.3:
+                #    print("Confident TV detection, stopping initial check early.")
+                #    break
+
+            # Reset video to start for actual playback
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            
-            # Determine if scene has a TV
-            if tv_detection_count > 0:
+
+            # Determine if scene has a TV based on the check
+            # Require at least 2 detections to be more certain
+            if tv_detection_count >= 2:
                 tv_detected_in_scene = True
-                print(f"TV detected in scene ({tv_detection_count}/{tv_check_frames} frames, best confidence: {tv_best_confidence:.2f})")
+                # Set the initial *controlled* state based on the first detected frame's status
+                tv_current_state = initial_tv_state
+                print(f"TV detected in scene ({tv_detection_count}/{tv_check_frames} frames, best conf: {tv_best_confidence:.2f}). Initial state: {tv_current_state.upper()}")
+                # Emit initial state to frontend
+                socketio.emit('tv_status_update', {'status': tv_current_state})
             else:
-                print("No TV detected in any frames checked.")
+                tv_detected_in_scene = False
+                tv_current_state = "off" # Default if no TV found
+                print("No persistent TV detected in initial frames.")
+                socketio.emit('tv_status_update', {'status': 'not_detected'}) # Inform frontend
+            # --- End Initial TV Detection Check ---
+
 
         # --- Frame Reading and Processing Loop (Only if playing) ---
         if cap and cap.isOpened() and play_event.is_set():
@@ -328,71 +371,85 @@ def process_video(target_fps=None):
                 stable_lighting_level = 0
                 pending_lighting_state = 0
                 frames_in_pending_state = 0
-                # --- End Reset ---
-                # Reset TV state
+                # --- Reset TV State on Stop/End ---
                 tv_detected_in_scene = False
                 tv_current_state = "off"
+                socketio.emit('tv_status_update', {'status': 'unknown'}) # Reset frontend TV state
+                # --- End Reset ---
                 socketio.emit('video_status', {'status': 'stopped', 'message': 'End of video.', 'video': video_name})
                 continue
 
             # --- Object Detection (gets raw level for this frame) ---
             try:
-                # Use detect_objects to detect persons and get lighting level
-                processed_frame, detected_level = detect_objects(frame.copy())
-                
-                # Use detect_tv_status to check TV status if TV was detected in scene
+                # Detect persons first to get lighting level
+                processed_frame, detected_level = detect_objects(frame.copy()) # Use copy for safety
+                person_detected = (detected_level > 0) # True if lighting level is 8
+
+                # --- TV Detection and Control Logic (only if TV was found initially) ---
                 if tv_detected_in_scene:
-                    tv_frame, tv_visible, tv_status, _ = detect_tv_status(frame.copy())
-                    processed_frame = tv_frame  # Use the frame with TV detection visualization
-                    
-                    # Only control TV if it's visible in this frame
-                    if tv_visible:
-                        # Control TV based on person detection (lighting level)
-                        person_detected = (detected_level > 0)
-                        
+                    # Now check the TV status in the *current* frame
+                    # We use the 'processed_frame' which might already have person boxes drawn
+                    tv_frame, tv_visible_now, tv_actual_status, _, _ = detect_tv_status(processed_frame.copy())
+                    processed_frame = tv_frame # Update frame with TV box/status drawing
+
+                    # Only attempt control if the TV is visible in this specific frame
+                    if tv_visible_now:
+                        # Scenario 1: Person detected, but our state is OFF -> Turn ON
                         if person_detected and tv_current_state == "off":
                             tv_current_state = "on"
-                            print("Person detected - turning TV ON")
-                            # Add visual indicator for TV state change
-                            cv2.putText(processed_frame, "TV TURNING ON", (50, 50), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                            print(f"TV Control: Person detected - Simulating TV ON (Emitting status: {tv_current_state})")
+                            socketio.emit('tv_status_update', {'status': tv_current_state})
+                            # Add visual indicator (optional)
+                            cv2.putText(processed_frame, "TV ON (Simulated)", (frame.shape[1] - 300, 50),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+                        # Scenario 2: No person detected, but our state is ON -> Turn OFF
                         elif not person_detected and tv_current_state == "on":
                             tv_current_state = "off"
-                            print("No person detected - turning TV OFF")
-                            # Add visual indicator for TV state change
-                            cv2.putText(processed_frame, "TV TURNING OFF", (50, 50),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 100, 0), 2)
+                            print(f"TV Control: No person detected - Simulating TV OFF (Emitting status: {tv_current_state})")
+                            socketio.emit('tv_status_update', {'status': tv_current_state})
+                            # Add visual indicator (optional)
+                            cv2.putText(processed_frame, "TV OFF (Simulated)", (frame.shape[1] - 300, 50),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 100, 0), 2)
+                        # Optional: Log if actual detected state differs from controlled state
+                        # elif tv_actual_status != tv_current_state:
+                        #    print(f"Debug: TV actual state '{tv_actual_status}' differs from controlled state '{tv_current_state}'")
+
+                    # else: # TV not visible in this frame
+                        # print("DEBUG: TV not visible in current frame, skipping control logic.")
+                        # pass # Keep tv_current_state as is if TV is temporarily occluded
+
+                # --- End TV Detection and Control Logic ---
+
             except Exception as e:
-                print(f"Error during object detection: {e}")
+                print(f"Error during object/TV detection or control: {e}")
+                # Fallback: use original frame, assume no detection
                 processed_frame = frame
                 detected_level = 0
+                # Optionally reset TV state or log error? For now, just continue.
 
             # --- Lighting Level Smoothing Logic ---
             with lock: # Protect access to shared smoothing variables
                 if detected_level == pending_lighting_state:
-                    # Detection matches the currently pending state, increment counter
                     frames_in_pending_state += 1
                 else:
-                    # Detection differs, start counting for this new state
                     pending_lighting_state = detected_level
-                    frames_in_pending_state = 1 # Reset counter to 1 for the new state
+                    frames_in_pending_state = 1
 
-                # Check if the pending state has been consistent long enough to become the stable state
                 if frames_in_pending_state >= STATE_CHANGE_THRESHOLD:
                     if stable_lighting_level != pending_lighting_state:
                         print(f"Lighting state changing: {stable_lighting_level} -> {pending_lighting_state} (threshold met)")
                         stable_lighting_level = pending_lighting_state
-                        # Optional: Reset counter after stable change, or let it keep incrementing
-                        # frames_in_pending_state = 0
+                        # Emit lighting level change *here* if you only want to emit on change
+                        # socketio.emit('lighting_change', {'level': stable_lighting_level})
 
-                # Always use the 'stable_lighting_level' for emission
                 level_to_emit = stable_lighting_level
 
             # --- Frame Encoding and Emission ---
             try:
                 _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 img_str = base64.b64encode(buffer).decode('utf-8')
-                # Emit the SMOOTHED level
+                # Emit frame and the SMOOTHED lighting level
                 socketio.emit('video_frame', {'image': img_str, 'lightingLevel': level_to_emit})
             except Exception as e:
                 print(f"Error encoding or emitting frame: {e}")
@@ -413,6 +470,10 @@ def process_video(target_fps=None):
                  stable_lighting_level = 0
                  pending_lighting_state = 0
                  frames_in_pending_state = 0
+             # --- Reset TV State on Stop Request ---
+             # Keep tv_detected_in_scene, but reset controlled state
+             tv_current_state = "off" # Assume TV turns off when stopping
+             socketio.emit('tv_status_update', {'status': 'unknown'}) # Reset frontend TV state
              # --- End Reset ---
              socketio.emit('video_status', {'status': 'stopped', 'video': video_name})
 
@@ -425,6 +486,8 @@ def process_video(target_fps=None):
     if cap:
         cap.release()
     video_processing_active = False
+    # Reset TV state on thread exit
+    socketio.emit('tv_status_update', {'status': 'unknown'})
     print("Video processing thread finished.")
 
 # --- Frame Generation for Stream ---
