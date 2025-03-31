@@ -1,13 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import io from 'socket.io-client'; // Import socket.io client
 import './VideoFeed.css';
 
-// Initialize socket connection (outside component to avoid reconnecting on re-renders)
-// Adjust the URL if your Flask app runs on a different port or host
-const socket = io(); // Connects to the same host/port serving the page
-
-// Pass setLightingLevel and clearLogMessages down from App
-function VideoFeed({ setLightingLevel, setTvStatus, clearLogMessages }) {
+// Pass socket, setLightingLevel and clearLogMessages down from App
+function VideoFeed({ socket, setLightingLevel, setTvStatus, clearLogMessages, resetRecognizedUser, recognizedUser, onVideoStateChange }) {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [videoSrc, setVideoSrc] = useState(''); // Store the base64 data URI
   const [currentVideoName, setCurrentVideoName] = useState(''); // Store name from backend status
@@ -54,7 +49,12 @@ function VideoFeed({ setLightingLevel, setTvStatus, clearLogMessages }) {
     const handleVideoFrame = (data) => {
       if (data && data.image && typeof data.lightingLevel === 'number') {
         setVideoSrc(`data:image/jpeg;base64,${data.image}`);
-        setLightingLevel(data.lightingLevel);
+        
+        // Only update lighting level if no recognized user OR if explicitly overriding
+        if (!recognizedUser || data.overrideUserPreference) {
+          setLightingLevel(data.lightingLevel);
+        }
+        
         // Ensure status reflects playing if receiving frames
         if (!isPlaying) setIsPlaying(true);
         if (statusMessage !== 'Online') setStatusMessage('Online');
@@ -155,7 +155,26 @@ function VideoFeed({ setLightingLevel, setTvStatus, clearLogMessages }) {
       // Optional: disconnect if the component should fully clean up the connection
       // socket.disconnect();
     };
-  }, [setLightingLevel, setTvStatus, clearLogMessages]); // Removed isSwitching dependency
+  }, [setLightingLevel, setTvStatus, clearLogMessages, recognizedUser]);
+
+  // Notify parent component about video state changes
+  useEffect(() => {
+    if (onVideoStateChange) {
+      onVideoStateChange(isPlaying);
+    }
+
+    // If video stops playing, reset recognized user
+    if (!isPlaying && resetRecognizedUser) {
+      resetRecognizedUser();
+    }
+  }, [isPlaying, onVideoStateChange, resetRecognizedUser]);
+
+  // Handle connection status changes
+  useEffect(() => {
+    if (!isConnected && resetRecognizedUser) {
+      resetRecognizedUser();
+    }
+  }, [isConnected, resetRecognizedUser]);
 
   // --- Button Handlers ---
   const handlePlay = () => {
@@ -179,10 +198,15 @@ function VideoFeed({ setLightingLevel, setTvStatus, clearLogMessages }) {
 
     console.log(`Requesting switch to video: ${videoName}`);
     setIsSwitching(true);
-    setIsPlaying(false); // Stop playing state on switch request
-    setIsReady(false); // Not ready during switch
+    setIsPlaying(false);
+    setIsReady(false);
     setStatusMessage(`Requesting switch to ${videoName}...`);
     setError(null);
+    
+    // Reset user recognition when switching videos
+    if (resetRecognizedUser) {
+      resetRecognizedUser();
+    }
 
     fetch('/api/set_video', {
       method: 'POST',
