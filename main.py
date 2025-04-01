@@ -8,6 +8,8 @@ import os
 from ultralytics import YOLO
 import argparse
 import base64
+import json
+import face_recognition
 
 app = Flask(__name__,
             static_folder='./frontend/build/static',
@@ -20,6 +22,7 @@ VIDEO_FOLDER = 'videos'
 AVAILABLE_VIDEOS = {
     "Video 1": os.path.join(VIDEO_FOLDER, 'test_video.mp4'),
     "Video 2": os.path.join(VIDEO_FOLDER, 'test_video2.mp4'),
+    "Video 3": os.path.join(VIDEO_FOLDER, 'IMG_1931.mp4'),
     # Add more videos here as needed
 }
 # Use the first video name as the default key
@@ -51,6 +54,17 @@ frames_in_pending_state = 0     # Counter for consecutive frames in the pending 
 STATE_CHANGE_THRESHOLD = 3      # How many frames needed to confirm a state change (adjust as needed)
 # --- End Smoothing State Variables ---
 
+# --- Add User Profile State Variables ---
+profiles_file = 'profiles.json'
+user_profiles = []
+current_user_id = None
+face_recognition_enabled = True
+face_recognition_frequency = 5  # Check for faces every 5 frames instead of 10
+frame_counter = 0
+
+# --- Add a global variable for tracking user preference
+user_preference_active = False
+
 # --- Helper Functions ---
 def get_video_path(video_name):
     """Gets the full path for a given video name."""
@@ -64,7 +78,7 @@ def load_model():
         try:
             print("Loading YOLOv8 model...")
             # Use the nano model for speed, or 's', 'm', 'l', 'x'
-            model = YOLO('yolov8n.pt')
+            model = YOLO('yolov8x.pt')
             print("YOLOv8 model loaded successfully.")
             return True
         except Exception as e:
@@ -229,6 +243,8 @@ def process_video(target_fps=None):
     global current_video_path, next_video_path, video_processing_active, model
     # Bring smoothing globals into scope
     global stable_lighting_level, pending_lighting_state, frames_in_pending_state
+    # Add frame_counter and current_user_id to global references
+    global frame_counter, current_user_id
 
     print("Video processing thread started.")
     video_processing_active = True
@@ -445,12 +461,111 @@ def process_video(target_fps=None):
 
                 level_to_emit = stable_lighting_level
 
+            # --- Face Recognition (only check every N frames to save processing) ---
+            if face_recognition_enabled:
+                frame_counter += 1
+                if frame_counter >= face_recognition_frequency:
+                    frame_counter = 0
+                    try:
+                        # Resize frame for faster face recognition
+                        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                        # Convert from BGR to RGB (face_recognition uses RGB)
+                        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Find face locations and encodings
+                        face_locations = face_recognition.face_locations(rgb_small_frame)
+                        print(f"DEBUG: Found {len(face_locations)} faces in frame")
+                        if face_locations:
+                            face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+                            print(f"DEBUG: Generated {len(face_encodings)} face encodings")
+                            
+                            # Emit face detection event - even if we can't recognize the specific user
+                            socketio.emit('face_detected', {'timestamp': time.time()})
+                            
+                            # Try to recognize each face
+                            recognized_user_id = None
+                            for face_encoding in face_encodings:
+                                user_id = recognize_face(face_encoding)
+                                print(f"DEBUG: Recognition result: {user_id}")
+                                if user_id:
+                                    recognized_user_id = user_id
+                                    break
+                            
+                            # If we recognized a user, apply their preferences
+                            if recognized_user_id and recognized_user_id != current_user_id:
+                                user = get_user_by_id(recognized_user_id)
+                                if user:
+                                    # Update current user
+                                    current_user_id = recognized_user_id
+                                    
+                                    # Get user preferences
+                                    preferences = user.get('preferences', {})
+                                    preferred_lighting = preferences.get('lighting_level', 8)
+                                    preferred_tv_state = preferences.get('tv_state', 'off')
+                                    
+                                    # Apply preferences (override detected state)
+                                    with lock:
+                                        # Set lighting level based on user preference
+                                        stable_lighting_level = preferred_lighting
+                                        pending_lighting_state = preferred_lighting
+                                        frames_in_pending_state = STATE_CHANGE_THRESHOLD  # Force immediate change
+                                    
+                                    # Set TV state based on user preference (if TV is detected)
+                                    if tv_detected_in_scene:
+                                        tv_current_state = preferred_tv_state
+                                        socketio.emit('tv_status_update', {'status': tv_current_state})
+                                    
+                                    # Notify frontend about user recognition
+                                    socketio.emit('user_recognized', {
+                                        'user_id': user.get('id'),
+                                        'name': user.get('name'),
+                                        'preferences': preferences
+                                    })
+                                    
+                                    print(f"Recognized user: {user.get('name')} (ID: {user.get('id')})")
+                                    print(f"Applied preferences: Lighting={preferred_lighting}, TV={preferred_tv_state}")
+                            
+                            # Draw face boxes on the processed frame (optional)
+                            for (top, right, bottom, left) in face_locations:
+                                # Scale back up face locations since the frame we detected in was scaled to 1/4 size
+                                top *= 4
+                                right *= 4
+                                bottom *= 4
+                                left *= 4
+                                
+                                # Draw a box around the face
+                                cv2.rectangle(processed_frame, (left, top), (right, bottom), (0, 0, 255), 2)
+                                
+                                # Draw a label with the user name if recognized
+                                if current_user_id:
+                                    user = get_user_by_id(current_user_id)
+                                    if user:
+                                        cv2.putText(processed_frame, user.get('name', 'Unknown'),
+                                                    (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    
+                    except Exception as e:
+                        print(f"Error during face recognition: {e}")
+
             # --- Frame Encoding and Emission ---
             try:
                 _, buffer = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 img_str = base64.b64encode(buffer).decode('utf-8')
-                # Emit frame and the SMOOTHED lighting level
-                socketio.emit('video_frame', {'image': img_str, 'lightingLevel': level_to_emit})
+                # Before emitting frame, check if we should override automatic detection
+                if current_user_id:  # If a user is recognized
+                    user_preference_active = True
+                    # Still emit the detected lighting level but add a flag
+                    socketio.emit('video_frame', {
+                        'image': img_str, 
+                        'lightingLevel': stable_lighting_level,
+                        'overrideUserPreference': False  # Don't override user preference
+                    })
+                else:
+                    user_preference_active = False
+                    # No user preference active, emit normally
+                    socketio.emit('video_frame', {
+                        'image': img_str, 
+                        'lightingLevel': stable_lighting_level
+                    })
             except Exception as e:
                 print(f"Error encoding or emitting frame: {e}")
 
@@ -538,6 +653,66 @@ def set_video():
 
     return jsonify({"message": f"Switching video to '{video_name}'"}), 200
 
+@app.route("/api/register_face", methods=['POST'])
+def register_face():
+    """API endpoint to register a user's face."""
+    global user_profiles
+    
+    data = request.get_json()
+    if not data or 'user_id' not in data or 'image_data' not in data:
+        return jsonify({"error": "Missing required fields"}), 400
+    
+    user_id = data['user_id']
+    image_data = data['image_data']
+    
+    # Find the user
+    user = get_user_by_id(user_id)
+    if not user:
+        return jsonify({"error": f"User with ID '{user_id}' not found"}), 404
+    
+    try:
+        # Decode base64 image
+        image_data = image_data.split(',')[1] if ',' in image_data else image_data
+        image_bytes = base64.b64decode(image_data)
+        image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        
+        # Convert from BGR to RGB
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Detect faces
+        face_locations = face_recognition.face_locations(rgb_image)
+        if not face_locations:
+            return jsonify({"error": "No face detected in the image"}), 400
+        
+        # Use the first face found
+        face_encoding = face_recognition.face_encodings(rgb_image, [face_locations[0]])[0]
+        
+        # Update user's face encoding
+        update_user_face_encoding(user_id, face_encoding)
+        
+        # Save profiles to file
+        save_user_profiles()
+        
+        return jsonify({"message": f"Face registered for user '{user.get('name')}'"})
+    
+    except Exception as e:
+        print(f"Error registering face: {e}")
+        return jsonify({"error": f"Error processing image: {str(e)}"}), 500
+
+@app.route("/api/users")
+def list_users():
+    """Returns a JSON list of available users."""
+    users_data = []
+    for user in user_profiles:
+        # Create a copy without the face_encoding field (too large to send)
+        user_copy = user.copy()
+        if 'face_encoding' in user_copy:
+            user_copy['has_face_encoding'] = user_copy['face_encoding'] is not None
+            del user_copy['face_encoding']
+        users_data.append(user_copy)
+    return jsonify(users_data)
+
 # --- Static File Serving for React App ---
 @app.route('/static/<path:path>')
 def serve_static_files(path):
@@ -614,6 +789,116 @@ def handle_stop_request():
     else:
         print("Stop request received but already stopped.")
 
+@socketio.on('set_tv_state')
+def handle_tv_state(data):
+    global tv_current_state
+    
+    if 'state' in data:
+        requested_state = data['state']
+        print(f"TV state change requested to: {requested_state}")
+        
+        # Update the TV state
+        tv_current_state = requested_state
+        
+        # Emit the TV state update to all clients
+        socketio.emit('tv_status_update', {'status': requested_state})
+        
+        return {'success': True}
+    else:
+        return {'success': False, 'error': 'Missing state parameter'}
+
+# --- User Profile Management Functions ---
+def load_user_profiles():
+    """Loads user profiles from the JSON file."""
+    global user_profiles
+    try:
+        if os.path.exists(profiles_file):
+            with open(profiles_file, 'r') as f:
+                data = json.load(f)
+                user_profiles = data.get('users', [])
+                print(f"Loaded {len(user_profiles)} user profiles.")
+                # Print user profiles to verify they have face encodings
+                for user in user_profiles:
+                    has_encoding = 'face_encoding' in user and user['face_encoding'] is not None
+                    print(f"User {user.get('name')} (ID: {user.get('id')}) has face encoding: {has_encoding}")
+                return True
+        else:
+            print(f"Warning: Profiles file '{profiles_file}' not found.")
+            return False
+    except Exception as e:
+        print(f"Error loading user profiles: {e}")
+        return False
+
+def save_user_profiles():
+    """Saves user profiles to the JSON file."""
+    try:
+        with open(profiles_file, 'w') as f:
+            json.dump({'users': user_profiles}, f, indent=2)
+        print(f"Saved {len(user_profiles)} user profiles.")
+        return True
+    except Exception as e:
+        print(f"Error saving user profiles: {e}")
+        return False
+
+def get_user_by_id(user_id):
+    """Gets a user profile by ID."""
+    for user in user_profiles:
+        if user.get('id') == user_id:
+            return user
+    return None
+
+def update_user_face_encoding(user_id, encoding):
+    """Updates a user's face encoding."""
+    for user in user_profiles:
+        if user.get('id') == user_id:
+            # Convert numpy array to list for JSON serialization
+            user['face_encoding'] = encoding.tolist() if encoding is not None else None
+            return True
+    return False
+
+def recognize_face(face_encoding):
+    """Recognizes a face against stored profiles."""
+    if not user_profiles:
+        print("DEBUG: No user profiles available for recognition")
+        return None
+    
+    # Check each user profile that has a face encoding
+    matches = []
+    for user in user_profiles:
+        stored_encoding = user.get('face_encoding')
+        if stored_encoding is not None:
+            # Convert stored encoding back to numpy array if it's a list
+            if isinstance(stored_encoding, list):
+                stored_encoding = np.array(stored_encoding)
+            
+            # Compare face encodings
+            try:
+                # Use face_recognition library with stricter tolerance (lower value = more strict)
+                match = face_recognition.compare_faces([stored_encoding], face_encoding, tolerance=0.5)  # Decreased from 0.7
+                if match[0]:
+                    # Calculate face distance (lower is better)
+                    distance = face_recognition.face_distance([stored_encoding], face_encoding)[0]
+                    # Only accept faces with distance below 0.6 (stricter matching)
+                    if distance < 0.6:  
+                        matches.append((user.get('id'), distance))
+                        print(f"DEBUG: Face matched user {user.get('name')} with distance {distance}")
+                    else:
+                        print(f"DEBUG: Face matched but distance too high for {user.get('name')} (distance: {distance})")
+                else:
+                    distance = face_recognition.face_distance([stored_encoding], face_encoding)[0]
+                    print(f"DEBUG: Face did not match user {user.get('name')} (distance: {distance})")
+            except Exception as e:
+                print(f"Error comparing face encodings: {e}")
+    
+    # Return the best match (lowest distance) only if matches exist
+    if matches:
+        matches.sort(key=lambda x: x[1])
+        best_match = matches[0]
+        print(f"DEBUG: Best match: User ID {best_match[0]} with distance {best_match[1]}")
+        return best_match[0]  # Return user_id of best match
+    
+    return None
+
 # --- Main Execution Block ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run RoomAware Flask app with YOLOv8 video processing.")
@@ -639,7 +924,16 @@ if __name__ == "__main__":
     if not os.path.exists(VIDEO_FOLDER):
         os.makedirs(VIDEO_FOLDER)
         print(f"Created video folder: {VIDEO_FOLDER}")
-        # You might want to add a check here if AVAILABLE_VIDEOS is empty
+
+    # Load user profiles
+    success = load_user_profiles()
+    if success:
+        # Print user profiles to verify they have face encodings
+        for user in user_profiles:
+            has_encoding = 'face_encoding' in user and user['face_encoding'] is not None
+            print(f"User {user.get('name')} (ID: {user.get('id')}) has face encoding: {has_encoding}")
+    else:
+        print("WARNING: Failed to load user profiles")
 
     # Verify default video exists and update if necessary
     with lock:
