@@ -8,7 +8,10 @@ import os
 from ultralytics import YOLO
 import argparse
 import base64
+import requests
+from dotenv import load_dotenv
 import json
+import google.generativeai as genai
 import face_recognition
 
 app = Flask(__name__,
@@ -30,6 +33,7 @@ DEFAULT_VIDEO_KEY = next(iter(AVAILABLE_VIDEOS))
 # Get the actual path for the default video
 DEFAULT_VIDEO_PATH = AVAILABLE_VIDEOS[DEFAULT_VIDEO_KEY]
 
+load_dotenv()
 
 # --- Global variables ---
 lock = threading.Lock()
@@ -719,6 +723,47 @@ def set_video():
 
     return jsonify({"message": f"Switching video to '{video_name}'"}), 200
 
+@app.route("/api/process-audio", methods=['POST'])
+def process_audio():
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+    
+    audio_file = request.files['audio']
+    
+    # Transcribe audio using Vosk
+    transcription = transcribe_with_elevenlabs(audio_file)
+    print("Transcription:", transcription)
+    
+    # Construct a prompt for the LLM (Gemini API)
+    prompt = f'''You will receive a transcript from a user's voice input in ElevenLabs JSON format, which contains the text/word, the start and end timestamps, and the type (e.g. word, spacing, etc.).
+
+Your task:
+Parse the transcript to identify any commands related to adjusting the home environment. 
+Specifically, check for instructions to change the state of the lights or to adjust the thermostat temperature.
+Write a JSON object to be output with the following structure:
+{{
+  "lights": "on" or "off" or "no_command",
+  "thermostat": "set_to_<temperature>" or "no_command"
+}}
+
+If no command is present for a field, return "no_command" for that field.
+
+Example Output:
+{{
+  "lights": "on",
+  "thermostat": "set_to_72"
+}}
+
+Please ensure you return only the JSON described above, with no other extra output.
+
+Here is the transcript: {transcription}'''
+    
+    # Call your Gemini API here (this function is simulated)
+    gemini_response = call_gemini_llm(prompt)
+    
+    # Return the structured output.
+    return jsonify(gemini_response)
+
 @app.route("/api/register_face", methods=['POST'])
 def register_face():
     """API endpoint to register a user's face."""
@@ -778,6 +823,7 @@ def list_users():
             del user_copy['face_encoding']
         users_data.append(user_copy)
     return jsonify(users_data)
+
 
 # --- Static File Serving for React App ---
 @app.route('/static/<path:path>')
