@@ -6,11 +6,11 @@ import LightingBar from './components/LightingBar';
 import SystemLog from './components/SystemLog';
 import UserRecognition from './components/UserRecognition';
 import io from 'socket.io-client';
+import ConvoAIButton from './components/ConvoAIButton';
 
 // Initialize socket connection (outside component to avoid reconnecting on re-renders)
 const socket = io(); // Connects to the same host/port serving the page
 
-import ConvoAIButton from './components/ConvoAIButton';
 
 const MAX_LOG_MESSAGES = 50;
 const USER_ABSENCE_TIMEOUT = 2000; // 2 seconds in milliseconds
@@ -220,6 +220,7 @@ function App() {
         resetRecognizedUser();
       }
     }
+  }
 
   // Callback function for ConvoAIButton to add a new log entry.
   const addLogMessage = (msg) => {
