@@ -74,6 +74,10 @@ def get_video_path(video_name):
     """Gets the full path for a given video name."""
     return AVAILABLE_VIDEOS.get(video_name)
 
+def get_video_path(video_name):
+    """Gets the full path for a given video name."""
+    return AVAILABLE_VIDEOS.get(video_name)
+
 def transcribe_with_elevenlabs(audio_file):
     """
     Uses the ElevenLabs Speech-to-Text API to transcribe an audio file.
@@ -135,7 +139,6 @@ def call_gemini_llm(prompt):
     except Exception as e:
         print("Bad happened: ", e)
         return {}
-
 
 # --- YOLO Model Loading & Detection ---
 def load_model():
