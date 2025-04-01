@@ -10,6 +10,8 @@ import io from 'socket.io-client';
 // Initialize socket connection (outside component to avoid reconnecting on re-renders)
 const socket = io(); // Connects to the same host/port serving the page
 
+import ConvoAIButton from './components/ConvoAIButton';
+
 const MAX_LOG_MESSAGES = 50;
 const USER_ABSENCE_TIMEOUT = 2000; // 2 seconds in milliseconds
 
@@ -74,7 +76,6 @@ function App() {
         return updatedMessages;
       });
     }
-
   }, [lightingLevel, tvStatus]);
 
   const clearLogMessages = () => {
@@ -219,6 +220,16 @@ function App() {
         resetRecognizedUser();
       }
     }
+
+  // Callback function for ConvoAIButton to add a new log entry.
+  const addLogMessage = (msg) => {
+    setLogMessages(prevMessages => {
+      const updatedMessages = [...prevMessages, msg];
+      if (updatedMessages.length > MAX_LOG_MESSAGES) {
+        return updatedMessages.slice(updatedMessages.length - MAX_LOG_MESSAGES);
+      }
+      return updatedMessages;
+    });
   };
 
   return (
@@ -246,6 +257,7 @@ function App() {
       />
       <LightingBar level={lightingLevel} />
       <SystemLog messages={logMessages} />
+      <ConvoAIButton onLogMessage={addLogMessage} />
       <footer className="footer">
         <div className="container">
           <p>&copy; {new Date().getFullYear()} RoomAware</p>
@@ -255,4 +267,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;
