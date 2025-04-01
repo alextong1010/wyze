@@ -227,7 +227,7 @@ function App() {
       <main className="main-content">
         <div className="container">
           <h1>RoomAware</h1>
-          <p className="subtitle">Real-time video analysis with YOLOv8</p>
+          <p className="subtitle">Redefining Home AI</p>
           <VideoFeed
             socket={socket}
             setLightingLevel={setDebouncedLightingLevel}
