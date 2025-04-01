@@ -238,8 +238,8 @@ function App() {
       <Navbar />
       <main className="main-content">
         <div className="container">
-          <h1>RoomAware</h1>
-          <p className="subtitle">Redefining Home AI</p>
+          {/* <h1>RoomAware</h1> */}
+          {/* <p className="subtitle">Redefining Home AI</p> */}
           <VideoFeed
             socket={socket}
             setLightingLevel={setDebouncedLightingLevel}
@@ -256,9 +256,9 @@ function App() {
         recognizedUser={recognizedUser}
         setRecognizedUser={setRecognizedUser}
       />
+      <ConvoAIButton onLogMessage={addLogMessage} />
       <LightingBar level={lightingLevel} />
       <SystemLog messages={logMessages} />
-      <ConvoAIButton onLogMessage={addLogMessage} />
       <footer className="footer">
         <div className="container">
           <p>&copy; {new Date().getFullYear()} RoomAware</p>

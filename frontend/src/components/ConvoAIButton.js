@@ -1,5 +1,6 @@
 // src/components/ConvoAIButton.js
 import React, { useState, useRef } from 'react';
+import './ConvoAIButton.css';
 
 const ConvoAIButton = ({ onLogMessage }) => {
   const [recording, setRecording] = useState(false);
@@ -90,8 +91,8 @@ const ConvoAIButton = ({ onLogMessage }) => {
 
   return (
     <div style={{ margin: '20px' }}>
-      <button onClick={recording ? stopRecording : startRecording}>
-        {recording ? 'Stop Recording' : 'Start Recording'}
+      <button className='convo-ai-button' onClick={recording ? stopRecording : startRecording}>
+        {recording ? 'End Voice Command' : 'Send a Voice Command'}
       </button>
       <p>{statusMessage}</p>
     </div>
