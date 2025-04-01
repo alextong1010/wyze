@@ -8,6 +8,12 @@ import os
 from ultralytics import YOLO
 import argparse
 import base64
+import requests
+from dotenv import load_dotenv
+import json
+import google.generativeai as genai
+
+
 
 app = Flask(__name__,
             static_folder='./frontend/build/static',
@@ -27,6 +33,7 @@ DEFAULT_VIDEO_KEY = next(iter(AVAILABLE_VIDEOS))
 # Get the actual path for the default video
 DEFAULT_VIDEO_PATH = AVAILABLE_VIDEOS[DEFAULT_VIDEO_KEY]
 
+load_dotenv()
 
 # --- Global variables ---
 lock = threading.Lock()
@@ -55,6 +62,69 @@ STATE_CHANGE_THRESHOLD = 3      # How many frames needed to confirm a state chan
 def get_video_path(video_name):
     """Gets the full path for a given video name."""
     return AVAILABLE_VIDEOS.get(video_name)
+
+def transcribe_with_elevenlabs(audio_file):
+    """
+    Uses the ElevenLabs Speech-to-Text API to transcribe an audio file.
+    Expects audio_file to be a file-like object (e.g., from Flask's request.files).
+    """
+    api_key = os.environ.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise Exception("Missing ELEVENLABS_API_KEY environment variable")
+    
+    # Set the endpoint and headers.
+    url = "https://api.elevenlabs.io/v1/speech-to-text"
+    headers = {
+        "xi-api-key": api_key
+    }
+    
+    # Set your model ID. Replace 'your_model_id' with the actual model ID you want to use.
+    data = {
+        "model_id": "scribe_v1"
+    }
+    
+    # Prepare the file payload. We're assuming the audio is a WAV file.
+    files = {
+        "file": ("recording.wav", audio_file, "audio/wav")
+    }
+    
+    response = requests.post(url, headers=headers, data=data, files=files)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"Transcription failed: {response.status_code} - {response.text}")
+    # THE SCUFFED VERSION return {'language_code': 'eng', 'language_probability': 0.9787006974220276, 'text': 'Please turn on the lights now.', 'words': [{'text': 'Please', 'start': 0.0, 'end': 0.5, 'type': 'word'}, {'text': ' ', 'start': 0.5, 'end': 0.52, 'type': 'spacing'}, {'text': 'turn', 'start': 0.52, 'end': 0.8, 'type': 'word'}, {'text': ' ', 'start': 0.8, 'end': 0.82, 'type': 'spacing'}, {'text': 'on', 'start': 0.82, 'end': 1.1, 'type': 'word'}, {'text': ' ', 'start': 1.1, 'end': 1.12, 'type': 'spacing'}, {'text': 'the', 'start': 1.12, 'end': 1.3, 'type': 'word'}, {'text': ' ', 'start': 1.3, 'end': 1.32, 'type': 'spacing'}, {'text': 'lights', 'start': 1.32, 'end': 1.8, 'type': 'word'}, {'text': ' ', 'start': 1.8, 'end': 1.82, 'type': 'spacing'}, {'text': 'now.', 'start': 1.82, 'end': 2.2, 'type': 'word'}]}
+
+def call_gemini_llm(prompt):
+    # Now we can make the API call
+    try:
+        # Configure the Gemini API client with your API key.
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        # Lower temperature for controlled, grounded output.
+        generation_config = genai.GenerationConfig(
+            temperature=0.2
+        )
+
+        # Generate content using the Gemini model.
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+
+        print("TEXT:", response.text)
+
+        # Extract the text from the response and parse it as JSON.
+        json_response = response.text
+        output = json.loads(json_response[7:-4])
+
+        return output
+
+    except Exception as e:
+        print("Bad happened: ", e)
+        return {}
+
 
 # --- YOLO Model Loading & Detection ---
 def load_model():
@@ -537,6 +607,47 @@ def set_video():
     switch_video_event.set() # Signal the processing thread
 
     return jsonify({"message": f"Switching video to '{video_name}'"}), 200
+
+@app.route("/api/process-audio", methods=['POST'])
+def process_audio():
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+    
+    audio_file = request.files['audio']
+    
+    # Transcribe audio using Vosk
+    transcription = transcribe_with_elevenlabs(audio_file)
+    print("Transcription:", transcription)
+    
+    # Construct a prompt for the LLM (Gemini API)
+    prompt = f'''You will receive a transcript from a user's voice input in ElevenLabs JSON format, which contains the text/word, the start and end timestamps, and the type (e.g. word, spacing, etc.).
+
+Your task:
+Parse the transcript to identify any commands related to adjusting the home environment. 
+Specifically, check for instructions to change the state of the lights or to adjust the thermostat temperature.
+Write a JSON object to be output with the following structure:
+{{
+  "lights": "on" or "off" or "no_command",
+  "thermostat": "set_to_<temperature>" or "no_command"
+}}
+
+If no command is present for a field, return "no_command" for that field.
+
+Example Output:
+{{
+  "lights": "on",
+  "thermostat": "set_to_72"
+}}
+
+Please ensure you return only the JSON described above, with no other extra output.
+
+Here is the transcript: {transcription}'''
+    
+    # Call your Gemini API here (this function is simulated)
+    gemini_response = call_gemini_llm(prompt)
+    
+    # Return the structured output.
+    return jsonify(gemini_response)
 
 # --- Static File Serving for React App ---
 @app.route('/static/<path:path>')
