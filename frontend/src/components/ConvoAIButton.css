@@ -1,0 +1,32 @@
+.convo-ai-button {
+    background-color: #007bff; /* Primary blue color */
+    color: #fff;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 25px; /* Rounded edges consistent with other buttons */
+    font-size: 0.9rem;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 10px;
+  }
+  
+  .convo-ai-button:hover {
+    background-color: #0056b3; /* Slightly darker on hover */
+    transform: translateY(-2px); /* Gentle upward shift */
+  }
+  
+  .convo-ai-button:active {
+    transform: translateY(1px); /* Press effect */
+    box-shadow: none;
+  }
+  
+  .convo-ai-button:disabled {
+    background-color: #555;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  
